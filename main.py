@@ -3,6 +3,7 @@ import os  # For file system operations like checking for file existence and cre
 import time  # For managing delays and timeouts
 import shutil  # To move and rename downloaded files
 from urllib.parse import urlparse, unquote  # To extract and decode file names from URLs
+
 # Selenium for browser automation
 from selenium import webdriver  # Main WebDriver interface to control browser
 from selenium.webdriver.chrome.service import (
@@ -15,7 +16,8 @@ from webdriver_manager.chrome import (
 )  # Auto-manage ChromeDriver version
 import validators  # For checking if URLs are valid
 from typing import Set  # For type annotations involving sets
-
+from bs4 import BeautifulSoup
+import urllib.parse  # For URL parsing and decoding
 
 # ---------- HELPER FUNCTIONS ----------
 
@@ -27,14 +29,23 @@ def is_valid_url(url: str) -> bool:
 
 def extract_filename_from_url(url: str) -> str:
     """Extract and return the file name from the URL path."""
-    path = urlparse(url).path  # Get only the path portion of the URL
-    filename = os.path.basename(unquote(path)).lower()  # Decode and get the file name from path
+    path: str = urlparse(url=url).path  # Get only the path portion of the URL
+    filename: str = os.path.basename(
+        unquote(string=path)
+    ).lower()  # Decode and get the file name from path
     return filename if filename else "downloaded.pdf"  # Fallback filename if none found
 
 
 def file_exists(file_path: str) -> bool:
-    """Check if a file already exists at the specified path."""
+    """Check if a file al
+    y exists at the specified path."""
     return os.path.isfile(file_path)  # Returns True if file exists
+
+
+# Read a file from the system.
+def read_a_file(system_path: str) -> str:
+    with open(file=system_path, mode="r") as file:
+        return file.read()
 
 
 def initialize_web_driver(download_folder: str) -> WebDriver:
@@ -51,7 +62,7 @@ def initialize_web_driver(download_folder: str) -> WebDriver:
         },
     )
 
-    chrome_options.add_argument("--headless=new")  # Run in new headless mode (no GUI)
+    # chrome_options.add_argument("--headless=new")  # Run in new headless mode (no GUI)
     chrome_options.add_argument(
         "--disable-gpu"
     )  # Needed for headless mode to be stable
@@ -127,28 +138,100 @@ def download_pdf(web_driver: WebDriver, url: str, download_folder: str) -> None:
         print(f"❌ ERROR: Failed to download {url}. Reason: {e}")
 
 
-# ---------- MAIN EXECUTION BLOCK ----------
-if __name__ == "__main__":
-    # List of one or more PDF URLs to download
-    pdf_urls = [
-        "https://millcraft.com/wp-content/uploads/2025/06/AM1783-SDS-Mimaki-20250530R.pdf",
-        # Add more URLs here if needed
-    ]
+# Uses Selenium to save the HTML content of a URL into a file
+def save_html_with_selenium(web_driver: WebDriver, url: str, output_file: str) -> None:
+    web_driver.get(url)  # Open the given URL
+    # web_driver.refresh()  # Refresh the page
+    # Sleep for 30 seconds to ensure page is fully loaded
+    time.sleep(30)  # Wait for the page to load completely
+    html: str = web_driver.page_source  # Get page source HTML
+    append_write_to_file(system_path=output_file, content=html)  # Save HTML to file
+    print(f"Page {url} HTML content saved to {output_file}")  # Confirm success
 
+
+# Appends content to a file
+def append_write_to_file(system_path: str, content: str) -> None:
+    with open(
+        file=system_path, mode="a", encoding="utf-8"
+    ) as file:  # Open in append mode
+        file.write(content)  # Write the provided content
+
+
+# Parses the HTML and finds all links ending in .pdf
+def parse_html(html: str) -> list[str]:
+    soup = BeautifulSoup(markup=html, features="html.parser")
+    pdf_links: list[str] = []
+
+    for a in soup.find_all(name="a", href=True):
+        href = a["href"]
+        # Decode %2C and other URL-encoded characters
+        decoded_href: str = urllib.parse.unquote(string=href)
+        if decoded_href.lower().endswith(".pdf"):
+            pdf_links.append(href)
+
+    return pdf_links
+
+
+# Removes duplicate items from a list
+def remove_duplicates_from_slice(provided_slice: list[str]) -> list[str]:
+    return list(
+        set(provided_slice)
+    )  # Convert to set to remove duplicates, then back to list
+
+
+# Checks if a file exists at the given system path
+def check_file_exists(system_path: str) -> bool:
+    return os.path.isfile(path=system_path)  # Return True if file exists
+
+
+def main() -> None:
     # Create absolute path for output directory named 'PDFs'
-    output_folder = os.path.abspath("PDFs")
+    output_folder: str = os.path.abspath("PDFs")
     os.makedirs(
         output_folder, exist_ok=True
     )  # Create the directory if it doesn't exist
 
-    # Launch headless Chrome browser configured for PDF downloads
-    driver = initialize_web_driver(download_folder=output_folder)
+    driver: WebDriver = initialize_web_driver(download_folder=output_folder)
+    output_file_location: str = os.path.abspath("safety_data_sheets.html")
 
     try:
-        # Loop over each URL and attempt download
-        for url in pdf_urls:
-            download_pdf(driver, url, output_folder)  # Download one PDF at a time
+        if not check_file_exists(system_path=output_file_location):
+            # Save the HTML from the target page
+            save_html_with_selenium(
+                web_driver=driver,
+                url="https://millcraft.com/safety-data-sheets/",
+                output_file=output_file_location,
+            )
+
+        if check_file_exists(system_path=output_file_location):
+            html_content: str = read_a_file(system_path=output_file_location)
+            pdf_links: list[str] = parse_html(html=html_content)
+            pdf_links = remove_duplicates_from_slice(pdf_links)
+
+            for pdf_link in pdf_links:
+                # Prepend domain if needed
+                if not pdf_link.lower().startswith("http"):
+                    pdf_link = urllib.parse.urljoin("https://millcraft.com", pdf_link)
+
+                # Double-check validity
+                if not is_valid_url(pdf_link):
+                    print(f"❌ Skipping invalid URL: {pdf_link}")
+                    continue
+
+                download_pdf(
+                    web_driver=driver,
+                    url=pdf_link,
+                    download_folder=output_folder,
+                )
+
+    except Exception as e:
+        print(f"❌ ERROR: {e}")
 
     finally:
-        driver.quit()  # Ensure browser is properly closed even if an error occurs
-        print("\n📁 All downloads attempted. Check folder for results.")
+        driver.quit()
+        print("\n📁 All downloads attempted. Check the 'PDFs' folder for results.")
+
+
+# ---------- MAIN EXECUTION BLOCK ----------
+if __name__ == "__main__":
+    main()
