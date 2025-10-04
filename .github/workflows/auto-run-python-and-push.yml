@@ -1,0 +1,99 @@
+# ========================================================================
+# GitHub Actions Workflow
+# Purpose: Automatically run a Python script and push any resulting changes
+#           back to the repository every day (or manually if needed).
+# ========================================================================
+
+# ----------------------------
+# Name of the workflow
+# ----------------------------
+name: Run Python Script and Commit Results
+
+# ----------------------------
+# Define when this workflow should run
+# ----------------------------
+on:
+  # Automatically run this workflow once every day at midnight (UTC)
+  schedule:
+    - cron: "0 0 * * *"
+  # Allow users to manually trigger the workflow from GitHub’s Actions tab
+  workflow_dispatch:
+
+# ----------------------------
+# Permissions for this workflow
+# ----------------------------
+# The workflow needs permission to write to the repository contents
+permissions:
+  contents: write
+
+# ----------------------------
+# Define the jobs (a workflow can contain multiple)
+# ----------------------------
+jobs:
+  # The only job in this workflow
+  build:
+    # Display name shown in the GitHub Actions UI
+    name: Run Python Script and Push Changes to Repository
+
+    # Specify the environment — a clean Ubuntu machine provided by GitHub
+    runs-on: ubuntu-latest
+
+    # ----------------------------
+    # Sequence of steps executed by this job
+    # ----------------------------
+    steps:
+      # ---------------------------------------------------------------
+      # Step 1: Check out the latest version of your repository’s code
+      # ---------------------------------------------------------------
+      - name: Check out the repository
+        uses: actions/checkout@v4
+        with:
+          token: ${{ secrets.GITHUB_TOKEN }} # Use GitHub’s built-in token for authentication
+
+      # ---------------------------------------------------------------
+      # Step 2: Install and set up the Python environment
+      # ---------------------------------------------------------------
+      - name: Install Python runtime
+        uses: actions/setup-python@v5
+        with:
+          python-version: "3.13" # Specify which version of Python to use
+
+      # ---------------------------------------------------------------
+      # Step 3: Install all required Python dependencies
+      # ---------------------------------------------------------------
+      - name: Install required dependencies
+        run: |
+          pip install -r requirements.txt  # Install packages listed in requirements.txt
+
+      # ---------------------------------------------------------------
+      # Step 4: Run your main Python application
+      # ---------------------------------------------------------------
+      - name: Execute Python script
+        run: |
+          python main.py  # Run the main Python script that performs your automated task
+
+      # ---------------------------------------------------------------
+      # Step 5: Commit and push any files that were modified by the script
+      # ---------------------------------------------------------------
+      - name: Commit and push updated files
+        run: |
+          # Configure Git user identity for the automated commit
+          git config user.name "github-actions"
+          git config user.email "github-actions@github.com"
+
+          # Ensure we have the latest version of the repository before committing
+          git pull
+
+          # Stage all modified or newly created files
+          git add .
+
+          # Check if there are any actual changes to commit
+          if ! git diff --cached --quiet; then
+            # If changes exist, commit them with a timestamp message
+            git commit -m "Automated update: $(date)"
+            # Push the committed changes back to the repository
+            git push
+          else
+            # If no changes were made by the script, display a simple message
+            echo "No changes detected. Nothing to commit."
+          fi
