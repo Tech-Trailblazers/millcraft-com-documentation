@@ -46,7 +46,7 @@ jobs:
       # Step 1: Check out the latest version of your repository’s code
       # ---------------------------------------------------------------
       - name: Check out the repository
-        uses: actions/checkout@v4
+        uses: actions/checkout@v5
         with:
           token: ${{ secrets.GITHUB_TOKEN }} # Use GitHub’s built-in token for authentication
 
