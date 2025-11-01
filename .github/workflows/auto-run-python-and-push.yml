@@ -54,7 +54,7 @@ jobs:
       # Step 2: Install and set up the Python environment
       # ---------------------------------------------------------------
       - name: Install Python runtime
-        uses: actions/setup-python@v5
+        uses: actions/setup-python@v6
         with:
           python-version: "3.13" # Specify which version of Python to use
 
